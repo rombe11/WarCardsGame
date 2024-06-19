@@ -1,101 +1,195 @@
 import React, { useState } from 'react';
-import { View, TextInput, Button, Image, Alert } from 'react-native';
+import { View, Text, TextInput, Button, StyleSheet,TouchableOpacity , ImageBackground} from 'react-native';
+import axios from 'axios';
+import { IP } from '@env';
 import * as ImagePicker from 'expo-image-picker';
-import * as Location from 'expo-location';
-import firebase from '@react-native-firebase/app';
-import '@react-native-firebase/firestore';
+import { storage } from '../utils/firebaseConfig';
+import { FirebaseError } from 'firebase/app';
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { useNavigation } from '@react-navigation/native';
 
 const Register = () => {
+  const navigation=useNavigation();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [userImage, setUserImage] = useState(null);
+  const [userImage, setUserImage] = useState("");
   const [country, setCountry] = useState('');
-  
-  // Function to handle image upload
-  const pickImage = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission required', 'Please grant permission to access the camera roll');
-      return;
-      
+
+const pickImage = async () => {
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    allowsEditing: true,
+    aspect: [4, 3],
+    quality: 1,
+  });
+
+  if (!result.canceled && result.assets && result.assets.length > 0) {
+    setUserImage(result.assets[0].uri);
+  }
+};
+
+const uploadImage = async (uri) => {
+  if (!uri) return null;
+
+  try {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    const storageRef = ref(storage, `images/${Date.now()}`);
+    await uploadBytes(storageRef, blob);
+    const downloadURL = await getDownloadURL(storageRef);
+    return downloadURL;
+  } catch (error) {
+    if (error.code === 'auth/network-request-failed') {
+      console.error("Network request failed. Please check your connection.");
+    } else if (error instanceof FirebaseError) {
+      console.error("Firebase Storage Error:", error.code, error.message, error.customData);
+    } else {
+      console.error("Unknown Error uploading image:", error);
     }
+    return null;
+  }
+};
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 1,
-    });
-
-    if (!result.cancelled) {
-      setUserImage(result.uri);
-    }
-  };
-
-  // Function to handle location upload
-  const pickLocation = async () => {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission required', 'Please grant permission to access location');
-      return;
-    }
-
-    const location = await Location.getCurrentPositionAsync({});
-    if (location) {
-      const geocode = await Location.reverseGeocodeAsync({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      });
-      if (geocode && geocode.length > 0) {
-        setCountry(geocode[0].country);
-      }
-    }
-  };
-
-  // Function to handle registration
-  const register = async () => {
+  const addUser = async () => {
     try {
-      // Upload image to Firebase Storage (not implemented here)
-      // Get download URL of the uploaded image (not implemented here)
-      const userImageUrl = 'url_of_uploaded_image';
-
-      // Add user data to Firestore
-      await firebase.firestore().collection('users').add({
-        username,
-        password,
-        userImage,
-        country,
-        cups: 0,
-      });
-
-      Alert.alert('Registration Successful', 'User registered successfully');
+      const imgUrl = await uploadImage(userImage);
+      console.log(imgUrl);
+      if(imgUrl){
+        const newUser = await axios.post(`http://${IP}:3000/api/users`, {
+          username,
+          password,
+          userImage:imgUrl,
+          country
+        });
+        console.log('User registered successfully: ', newUser.data);
+        alert('Welcome!');
+        navigation.navigate('Login')
+      
+        //Clear input fields 
+        setUsername('');
+        setPassword('');
+        setUserImage('');
+        setCountry('');
+    
+      return newUser.data;
+      }
     } catch (error) {
       console.error('Error registering user: ', error);
-      Alert.alert('Registration Failed', 'An error occurred while registering the user');
     }
   };
-
+  const handleRegister = async () => {
+    try {
+      if (!username || !password) {
+        alert('Username and password are required');
+        return;
+      }
+      else{
+        const userExistsResponse = await axios.get(`http://${IP}:3000/api/users/${username}/exist`);
+        const userExists = userExistsResponse.data;
+        console.log(userExists.isExist);
+        if (userExists.isExist) {
+          alert('Username already exists');
+        }
+        else{
+          await addUser();
+        }
+      }
+    } catch (error) {
+      console.error('Error registering user: ', error);
+    }
+  };
+  
+  
   return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-      <TextInput
-        style={{ height: 40, width: '80%', marginBottom: 10, borderColor: 'gray', borderWidth: 1 }}
-        placeholder="Username"
-        onChangeText={text => setUsername(text)}
-        value={username}
-      />
-      <TextInput
-        style={{ height: 40, width: '80%', marginBottom: 10, borderColor: 'gray', borderWidth: 1 }}
-        placeholder="Password"
-        onChangeText={text => setPassword(text)}
-        value={password}
-        secureTextEntry
-      />
-      <Button title="Pick Image" onPress={pickImage} />
-      {userImage && <Image source={{ uri: userImage }} style={{ width: 200, height: 200, marginBottom: 10 }} />}
-      <Button title="Pick Location (country)" onPress={pickLocation} />
-      <Button title="Register" onPress={register} />
+<ImageBackground
+      source={{ uri: 'https://img.freepik.com/premium-vector/red-poker-background_6735-67.jpg' }}
+      style={styles.background}
+    >
+    <View style={styles.container}>
+      
+      <Text style={styles.title}>Sign up</Text>
+
+      <View style={styles.inputWrapper}>
+        <TextInput
+          style={styles.input}
+          value={username}
+          onChangeText={setUsername}
+          placeholder="Enter your username"
+          placeholderTextColor="#ccc"
+        />
+
+        <TextInput
+          style={styles.input}
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+          placeholder="Enter your password"
+          placeholderTextColor="#ccc"
+        />
+
+        <TextInput
+          style={styles.input}
+          value={country}
+          onChangeText={setCountry}
+          placeholder="Enter your country"
+          placeholderTextColor="#ccc"
+        />
+
+      <View style={{ paddingVertical: 20 }}>
+        <Button title="Choose Image" style={{ marginBottom: 10, height: 30 }} onPress={pickImage} />
+      </View>
+
+      <Button title="REGISTER"  onPress={handleRegister} />
+
+      <TouchableOpacity onPress={() => navigation.navigate('Login')} style={{ paddingTop: 20 }}>
+        <Text style={{ color: "#FFFFFF", textDecorationLine: 'underline' }}>Already have an account? Log In</Text>
+      </TouchableOpacity>
+
+      
+      </View>
     </View>
+    </ImageBackground>
   );
 };
+
+const styles = StyleSheet.create({
+  background: {
+    flex: 1,
+    resizeMode: 'cover',
+    justifyContent: 'center',
+  },
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)', 
+  },
+  title: {
+    fontSize: 30,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    color: '#FFFFFF', 
+  },
+  inputWrapper: {
+    width: '75%',
+    backgroundColor: 'rgba(255, 255, 255, 0.8)', 
+    borderRadius: 12,
+    padding: 15,
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  input: {
+    width: '100%',
+    height: 40,
+    backgroundColor: 'white',
+    color: 'black',
+    borderWidth: 1,
+    borderColor: 'gray',
+    marginBottom: 15,
+    paddingHorizontal: 10,
+    borderRadius: 17,
+  },
+});
 
 export default Register;
